@@ -5,17 +5,25 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Addis Bingo MiniApp</title>
 <style>
-  body { font-family: sans-serif; text-align:center; background:#f9f9f9; }
-  table { margin:auto; border-collapse: collapse; margin-top:20px; }
-  td { width:50px; height:50px; border:1px solid #333; text-align:center; vertical-align:middle; font-weight:bold; cursor:pointer; }
-  .marked { background-color: #4caf50; color:white; }
-  #bingoBtn { margin-top: 20px; padding: 10px 20px; font-size:16px; cursor:pointer; }
+  body { font-family: sans-serif; background: #f9f9f9; text-align:center; }
+  h2 { margin-top: 20px; }
+  .card-grid { display: flex; flex-wrap: wrap; justify-content: center; margin-top: 20px; }
+  .card { border:1px solid #333; margin:5px; padding:10px; cursor:pointer; width:40px; height:40px; display:flex; align-items:center; justify-content:center; font-weight:bold; background:white; }
+  .card.selected { border: 3px solid #4caf50; background:#d4edda; }
+  table { border-collapse: collapse; margin:auto; margin-top:20px; display:none; }
+  td { border:1px solid #333; width:50px; height:50px; text-align:center; vertical-align:middle; font-weight:bold; cursor:pointer; }
+  .marked { background-color:#4caf50; color:white; }
+  #bingoBtn { margin-top:20px; padding:10px 20px; font-size:16px; cursor:pointer; display:none; }
+  #countdown { font-size:18px; margin-top:10px; color:#d9534f; }
 </style>
 </head>
 <body>
 
 <h2>Addis Bingo 🎱</h2>
-<div id="timer">Select your card! Game starts in <span id="count">30</span>s</div>
+<p>Select a card number to play:</p>
+<div id="countdown"></div>
+<div class="card-grid" id="cardsContainer"></div>
+
 <table id="bingo-card"></table>
 <button id="bingoBtn">Bingo!</button>
 
@@ -24,63 +32,85 @@
 const tg = window.Telegram.WebApp;
 tg.expand();
 
-let countdown = 30;
 let playerCard = [];
 let marked = [];
 let cardPicked = false;
+let gameStarted = false;
 
-const timerEl = document.getElementById("count");
+const cardsContainer = document.getElementById("cardsContainer");
 const bingoCardEl = document.getElementById("bingo-card");
+const bingoBtn = document.getElementById("bingoBtn");
+const countdownEl = document.getElementById("countdown");
 
-// ---------------- Countdown ----------------
-const interval = setInterval(() => {
-  countdown--;
-  timerEl.textContent = countdown;
-  if(countdown <= 0){
-    clearInterval(interval);
-    if(!cardPicked){
-      tg.sendData(JSON.stringify({action:"pick_card"}));
-      cardPicked = true;
-    }
-  }
-},1000);
+// ---------------- Display 100 card numbers ----------------
+for(let i=1;i<=100;i++){
+    const div = document.createElement('div');
+    div.classList.add('card');
+    div.textContent = i;
+    div.addEventListener('click', ()=>{
+        if(gameStarted) return; // can't change after countdown
+        cardPicked = true;
+        document.querySelectorAll('.card').forEach(el=>el.classList.remove('selected'));
+        div.classList.add('selected');
 
-// ---------------- Render Card ----------------
-function renderCard(){
-  bingoCardEl.innerHTML = '';
-  for(let i=0;i<5;i++){
-    const row = document.createElement('tr');
-    for(let j=0;j<5;j++){
-      const td = document.createElement('td');
-      const val = playerCard[i*5+j];
-      td.textContent = val;
-      if(marked.includes(val) || val==='FREE') td.classList.add('marked');
-      row.appendChild(td);
-    }
-    bingoCardEl.appendChild(row);
-  }
+        // Send card selection to bot
+        tg.sendData(JSON.stringify({action:"pick_card", card_index:i}));
+
+        // Show the bingo board placeholder
+        bingoCardEl.style.display = 'table';
+        bingoBtn.style.display = 'inline-block';
+    });
+    cardsContainer.appendChild(div);
 }
 
-// ---------------- Bingo Button ----------------
-document.getElementById('bingoBtn').addEventListener('click',()=>{
-  if(!cardPicked) return alert("Pick a card first!");
-  tg.sendData(JSON.stringify({action:"bingo"}));
+// ---------------- Render Chosen Card ----------------
+function renderCard(numbers){
+    bingoCardEl.innerHTML = '';
+    for(let i=0;i<5;i++){
+        const row = document.createElement('tr');
+        for(let j=0;j<5;j++){
+            const td = document.createElement('td');
+            const val = numbers[i*5+j];
+            td.textContent = val;
+            if(marked.includes(val) || val==='FREE') td.classList.add('marked');
+            row.appendChild(td);
+        }
+        bingoCardEl.appendChild(row);
+    }
+}
+
+// ---------------- Listen for bot messages ----------------
+window.Telegram.WebApp.onEvent('messageReceived', function(message){
+    // Countdown messages
+    if(message.text.startsWith("⏳ Game starts in")){
+        countdownEl.textContent = message.text;
+        if(message.text.includes("0s")){
+            gameStarted = true; // lock card selection
+            countdownEl.textContent = "🎮 Game Started!";
+        }
+    }
+
+    // Assigned card numbers
+    if(message.text.startsWith("✅ Card #")){
+        const nums = message.text.split("Numbers:")[1];
+        if(nums){
+            playerCard = nums.trim().split(",");
+            renderCard(playerCard);
+        }
+    }
+
+    // Drawn number updates
+    if(message.text.startsWith("🎯 Number drawn:")){
+        const number = message.text.split(":")[1].trim();
+        if(!marked.includes(number)) marked.push(number);
+        renderCard(playerCard);
+    }
 });
 
-// ---------------- Mark Numbers ----------------
-function markNumber(number){
-  if(playerCard.includes(number) && !marked.includes(number)){
-    marked.push(number);
-    renderCard();
-  }
-}
-
-// ---------------- Bot Messages (numbers drawn) ----------------
-window.Telegram.WebApp.onEvent('messageReceived', function(message){
-  if(message.text.startsWith("🎯 Number drawn:")){
-    const number = message.text.split(":")[1].trim();
-    markNumber(number);
-  }
+// ---------------- Bingo Button ----------------
+bingoBtn.addEventListener('click', ()=>{
+    if(!cardPicked) return alert("Pick a card first!");
+    tg.sendData(JSON.stringify({action:"bingo"}));
 });
 </script>
 </body>
