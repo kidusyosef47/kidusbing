@@ -79,9 +79,19 @@ function renderCard(numbers){
     }
 }
 
-// ---------------- Listen for bot messages ----------------
+// ---------------- Listen for bot Web App Query reply ----------------
+window.Telegram.WebApp.onEvent('webAppQueryResultReceived', function(result){
+    if(result.result && result.result.input_message_content){
+        const nums = result.result.input_message_content.message_text;
+        if(nums){
+            playerCard = nums.trim().split(",");
+            renderCard(playerCard);
+        }
+    }
+});
+
+// ---------------- Countdown / drawn numbers ----------------
 window.Telegram.WebApp.onEvent('messageReceived', function(message){
-    // Countdown messages
     if(message.text.startsWith("⏳ Game starts in")){
         countdownEl.textContent = message.text;
         if(message.text.includes("0s")){
@@ -90,16 +100,6 @@ window.Telegram.WebApp.onEvent('messageReceived', function(message){
         }
     }
 
-    // Assigned card numbers
-    if(message.text.startsWith("✅ Card #")){
-        const nums = message.text.split("Numbers:")[1];
-        if(nums){
-            playerCard = nums.trim().split(",");
-            renderCard(playerCard);
-        }
-    }
-
-    // Drawn number updates
     if(message.text.startsWith("🎯 Number drawn:")){
         const number = message.text.split(":")[1].trim();
         if(!marked.includes(number)) marked.push(number);
